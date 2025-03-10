@@ -2,13 +2,15 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 
-from src.bots.base_trade_bot import OrderType, TradeBot, OrderResult
-from src.bots.config import TradingConfig, StrategyType
-import pandas as pd
-import numpy as np
-from typing import Optional, Dict, Tuple
 import logging
 from datetime import datetime, timezone
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+
+from src.bots.base_trade_bot import OrderResult, OrderType, TradeBot
+from src.bots.config import StrategyType, TradingConfig
 
 logger = logging.getLogger(__name__)
 

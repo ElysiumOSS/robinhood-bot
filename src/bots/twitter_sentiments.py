@@ -3,17 +3,19 @@
 # vim:fenc=utf-8
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime
-from typing import List, Optional, Dict, Any, Tuple
-import numpy as np
-import tweepy
-from utilities import TwitterCredentials
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from textblob import TextBlob
 import re
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import tweepy
+from textblob import TextBlob
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
 from src.bots.config import OrderType
+from utilities import TwitterCredentials
 
 
 @dataclass
