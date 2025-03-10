@@ -3,15 +3,17 @@
 # vim:fenc=utf-8
 
 import logging
-from typing import Dict, Optional, List
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+import numpy as np
 import pandas as pd
 import pyotp
 import robin_stocks.robinhood as robinhood
-from datetime import datetime, timezone
-import numpy as np
-from dataclasses import dataclass
+
+from src.bots.config import OrderType, StrategyType, TradingConfig
 from src.utilities import RobinhoodCredentials
-from src.bots.config import TradingConfig, StrategyType, OrderType
 
 # Configure logging to write to a file
 logging.basicConfig(

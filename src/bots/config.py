@@ -3,10 +3,11 @@
 # vim:fenc=utf-8
 
 from dataclasses import dataclass, field
-from typing import Dict, List
-from enum import Enum, auto
-import numpy as np
 from datetime import timedelta
+from enum import Enum, auto
+from typing import Dict, List
+
+import numpy as np
 
 
 class OrderType(Enum):
