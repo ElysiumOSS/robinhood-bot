@@ -4,7 +4,7 @@ cffi>=1.17.0
 cfgv==3.3.1
 charset-normalizer==2.0.7
 cryptography>=46.0.0
-distlib==0.3.6
+distlib==0.3.8
 exceptiongroup==1.1.1
 filelock>=3.13
 identify==2.5.23
@@ -16,7 +16,7 @@ numpy>=1.24.3
 oauthlib==3.2.2
 packaging>=22.0
 pandas>=2.0.3
-platformdirs==3.4.0
+platformdirs==4.2.0
 pluggy==1.0.0
 pre-commit==3.2.2
 py==1.11.0

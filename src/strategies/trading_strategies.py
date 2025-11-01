@@ -131,6 +131,6 @@ def calculate_sentiment_signal(ticker: str, config: SentimentAnalysisConfig) -> 
             return -1.0
         return 0.0
 
-    except (tweepy.TweepyException, Exception) as e:
+    except tweepy.TweepyException as e:
         print(f"Error in sentiment analysis for {ticker}: {e}")
         return 0.0

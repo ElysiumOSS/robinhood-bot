@@ -212,7 +212,7 @@ After running `initialize.sh`, you **must** update the `.env` file with your act
     # Robinhood Credentials
     ROBINHOOD_USER="YOUR_ROBINHOOD_EMAIL"
     ROBINHOOD_PASS="YOUR_ROBINHOOD_PASSWORD"
-    ROBINHOOD_MFA_CODE="YOUR_ROBINHOOD_MFA_SECRET_KEY"
+    ROBINHOOD_MFA_CODE="YOUR_ROBINHOOD_MFA_SECRET_KEY"  # Optional: MFA secret key for automated authentication
     ```
 
 3.  **Activate your virtual environment**:
@@ -220,6 +220,38 @@ After running `initialize.sh`, you **must** update the `.env` file with your act
     ```bash
     source env/bin/activate
     ```
+
+#### Authentication Methods
+
+The bot now supports multiple authentication methods with automatic retry and verification timer:
+
+**Method 1: Environment Variable MFA (Recommended for Automation)**
+- Set `ROBINHOOD_MFA_CODE` in your `.env` file with your authenticator app's secret key
+- The bot will automatically use this for authentication
+- Best for scheduled/automated runs
+
+**Method 2: Interactive Device Approval (For "Yes, it's me" prompts)**
+- If Robinhood asks you to approve the login on your device:
+  ```bash
+  python approve_login.py
+  ```
+- This script gives you **3 minutes** to approve the login on your mobile app
+- Look for the "Yes, it's me" prompt in your Robinhood app
+- The script will wait and verify the approval automatically
+- **Use this if you keep seeing "Approve this login" notifications**
+
+**Method 3: Interactive MFA (SMS/Code Entry)**
+- Leave `ROBINHOOD_MFA_CODE` empty or unset
+- The bot will attempt SMS verification
+- If MFA is required, it will wait 45 seconds for SMS delivery
+- You'll be prompted to enter the verification code interactively
+- Ideal for manual runs and initial setup
+
+**Method 4: Automatic Retry with Timer**
+- The bot implements a 3-attempt retry mechanism with exponential backoff (10s, 20s, 40s)
+- Each attempt tries multiple authentication methods
+- Provides detailed error messages and troubleshooting steps
+- Gracefully handles various authentication errors (missing 'detail' key, locked accounts, etc.)
 
 <p align="right"><a href="#top">Back to top</a></p>
 
@@ -513,6 +545,84 @@ The `ROBINHOOD_MFA_CODE` is the *secret key* you get when initially setting up a
 </details>
 
 ### Troubleshooting
+
+<details>
+<summary><h4>🐛 "Yes, it's me" - Robinhood keeps asking for device approval</h4></summary>
+
+If you keep getting prompted to approve the login on your Robinhood mobile app:
+
+**This is a device challenge - Robinhood wants to verify it's really you logging in.**
+
+**Solution: Use the approval script**
+```bash
+python approve_login.py
+```
+
+This specialized script:
+- Waits **3 minutes** for you to approve the login
+- Shows countdown timer so you know how much time you have
+- Automatically verifies once you click "Yes, it's me"
+- Provides clear instructions at each step
+
+**Steps:**
+1. Run `python approve_login.py`
+2. Open your Robinhood mobile app
+3. Look for the "Approve this login" notification
+4. Tap "Yes, it's me" or "Approve"
+5. Wait for the script to confirm success
+
+**Why this happens:**
+- New device or IP address
+- Long time since last login
+- Suspicious activity detection
+- Security measure by Robinhood
+
+**If it still fails:**
+- Make sure you're approving within the 3-minute window
+- Check that notifications are enabled in the Robinhood app
+- Try logging into Robinhood app/website directly first
+- Wait 30 minutes and try again if you've had many failed attempts
+</details>
+
+<details>
+<summary><h4>🐛 `ConnectionError: Failed to authenticate` or `KeyError: 'detail'`</h4></summary>
+This error typically occurs when Robinhood's API returns a 403 response without the expected error details. This can happen for several reasons:
+
+**Common Causes:**
+*   **MFA/2FA Required**: Your account requires two-factor authentication
+*   **Device Approval Required**: Robinhood wants you to approve the login (see above)
+*   **Account Verification Needed**: Robinhood may need you to verify your account through their app/website
+*   **Suspicious Activity**: Account temporarily locked due to unusual login patterns
+*   **Invalid Credentials**: Username or password is incorrect
+*   **Rate Limiting**: Too many login attempts in a short period
+
+**Solutions:**
+1.  **Try Device Approval Script** (if you see "Yes, it's me" prompts):
+    ```bash
+    python approve_login.py
+    ```
+    
+2.  **Enable Interactive MFA**: 
+    - Leave `ROBINHOOD_MFA_CODE` empty in `.env`
+    - Run the bot - it will wait 45 seconds for SMS and prompt for code
+    
+3.  **Set Up MFA in Environment**:
+    - Add your MFA secret key to `ROBINHOOD_MFA_CODE` in `.env`
+    - Bot will automatically authenticate using this key
+    
+4.  **Verify Account Manually**:
+    - Log into Robinhood app/website directly
+    - Complete any pending verification steps
+    - Try running the bot again
+    
+5.  **Wait and Retry**:
+    - The bot automatically retries 3 times with exponential backoff (10s, 20s, 40s)
+    - If rate-limited, wait 15-30 minutes before trying again
+    
+6.  **Check Credentials**:
+    - Verify `ROBINHOOD_USER` and `ROBINHOOD_PASS` are correct
+    - Ensure no extra spaces or quotes in `.env` file
+</details>
 
 <details>
 <summary><h4>🐛 `robin_stocks.exceptions.LoginFailureException: MFA code is invalid`</h4></summary>

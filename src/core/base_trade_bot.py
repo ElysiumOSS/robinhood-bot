@@ -1,5 +1,6 @@
 """This module contains the base class for all trading bots."""
 
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -39,18 +40,208 @@ class TradeBot:
         self.trade_history: List[OrderResult] = []
 
     def _authenticate(self) -> None:
-        """Handle Robinhood authentication with improved error handling."""
+        """Handle Robinhood authentication with improved error handling and MFA support."""
         credentials = RobinhoodCredentials()
 
         logger.debug("Starting authentication process.")
         logger.debug("User: %s", credentials.user)
 
-        try:
-            robinhood.login(credentials.user, credentials.password, expiresIn=86400, by_sms=False)
-            logger.info("Successfully authenticated with Robinhood")
-        except Exception as e:
-            logger.error("Authentication failed: %s", e)
-            raise ConnectionError(f"Failed to connect to Robinhood: {e}") from e
+        max_retries = 3
+        base_retry_delay = 10  # Base delay in seconds (will increase exponentially)
+        
+        for attempt in range(1, max_retries + 1):
+            # Calculate exponential backoff delay for this attempt
+            retry_delay = base_retry_delay * (2 ** (attempt - 1))  # 10s, 20s, 40s
+            
+            try:
+                logger.info("=" * 60)
+                logger.info("Authentication attempt %d/%d", attempt, max_retries)
+                logger.info("=" * 60)
+                
+                # If MFA code is provided in environment variables, use it directly
+                if credentials.mfa_code:
+                    try:
+                        logger.info("Attempting authentication with MFA code from environment...")
+                        time.sleep(2)  # Brief pause before API call
+                        robinhood.login(
+                            credentials.user,
+                            credentials.password,
+                            expiresIn=86400,
+                            mfa_code=credentials.mfa_code
+                        )
+                        logger.info("✓ Successfully authenticated with MFA code")
+                        return
+                    except Exception as mfa_error:
+                        error_str = str(mfa_error)
+                        
+                        # Check if it's a challenge requiring device approval
+                        if "challenge" in error_str.lower() or "403" in error_str:
+                            logger.warning("✗ Device verification required (not just MFA)")
+                            logger.info("Robinhood needs you to approve this login on your device.")
+                        else:
+                            logger.warning("✗ MFA authentication with env code failed: %s", mfa_error)
+                        
+                        logger.info("Falling back to interactive authentication...")
+                        time.sleep(3)  # Wait before trying next method
+                
+                # Try with SMS verification enabled
+                try:
+                    logger.info("Attempting SMS authentication...")
+                    time.sleep(2)  # Brief pause before API call
+                    robinhood.login(
+                        credentials.user, 
+                        credentials.password, 
+                        expiresIn=86400, 
+                        by_sms=True
+                    )
+                    logger.info("✓ Successfully authenticated with Robinhood")
+                    return
+                except Exception as sms_error:
+                    logger.debug("✗ SMS authentication attempt failed: %s", sms_error)
+                    error_str = str(sms_error)
+                    
+                    # Check if this is a challenge/verification prompt
+                    if "challenge" in error_str.lower() or "403" in error_str:
+                        logger.info("=" * 60)
+                        logger.info("⚠️  DEVICE VERIFICATION REQUIRED")
+                        logger.info("=" * 60)
+                        logger.info("Robinhood is asking you to verify this login on your device.")
+                        logger.info("Please do the following:")
+                        logger.info("  1. Check your Robinhood mobile app")
+                        logger.info("  2. Look for a 'Verify login' or 'Yes, it's me' prompt")
+                        logger.info("  3. Approve the login request")
+                        logger.info("  4. Wait for confirmation")
+                        logger.info("=" * 60)
+                        
+                        # Give substantial time for user to approve
+                        approval_wait_time = 120  # 2 minutes
+                        logger.info("Waiting up to %d seconds for you to approve...", approval_wait_time)
+                        
+                        # Wait in chunks so we can provide updates
+                        for remaining in range(approval_wait_time, 0, -30):
+                            logger.info("⏳ Time remaining: %d seconds - Please approve on your device now!", remaining)
+                            time.sleep(min(30, remaining))
+                        
+                        logger.info("Attempting to verify approval...")
+                        time.sleep(3)
+                        
+                        # Try logging in again after approval
+                        try:
+                            logger.info("Checking if login was approved...")
+                            robinhood.login(
+                                credentials.user,
+                                credentials.password,
+                                expiresIn=86400,
+                                by_sms=True
+                            )
+                            logger.info("✓ Successfully authenticated after approval!")
+                            return
+                        except Exception as approval_error:
+                            logger.warning("✗ Login after approval failed: %s", approval_error)
+                            logger.info("You may need to approve again or try a different method.")
+                    
+                    time.sleep(3)  # Wait before trying next method
+                    
+                    # If SMS fails, check if it requires MFA code input
+                    if "mfa" in error_str.lower() or "verification" in error_str.lower():
+                        logger.info("MFA verification required.")
+                        logger.info("Please check your device for verification code.")
+                        
+                        # Wait for user to receive verification
+                        wait_time = 45  # Increased from 30 to 45 seconds
+                        logger.info("Waiting %d seconds for SMS delivery...", wait_time)
+                        time.sleep(wait_time)
+                        
+                        # Try to get MFA code from user input
+                        try:
+                            mfa_code = input("\nEnter your MFA verification code (or press Enter to skip): ").strip()
+                        except (EOFError, KeyboardInterrupt):
+                            logger.warning("Interactive input not available or interrupted")
+                            mfa_code = ""
+                        
+                        if mfa_code:
+                            try:
+                                logger.info("Attempting authentication with provided MFA code...")
+                                time.sleep(2)  # Brief pause before API call
+                                robinhood.login(
+                                    credentials.user,
+                                    credentials.password,
+                                    expiresIn=86400,
+                                    mfa_code=mfa_code
+                                )
+                                logger.info("✓ Successfully authenticated with MFA code")
+                                return
+                            except Exception as mfa_error:
+                                logger.error("✗ MFA authentication failed: %s", mfa_error)
+                                if attempt < max_retries:
+                                    logger.info("Waiting %d seconds before retry...", retry_delay)
+                                    time.sleep(retry_delay)
+                                    continue
+                        else:
+                            logger.info("No MFA code provided, trying alternative methods...")
+                            time.sleep(3)  # Wait before trying next method
+                    
+                    # Try without SMS as fallback
+                    try:
+                        logger.info("Attempting authentication without SMS...")
+                        time.sleep(2)  # Brief pause before API call
+                        robinhood.login(
+                            credentials.user,
+                            credentials.password,
+                            expiresIn=86400,
+                            by_sms=False
+                        )
+                        logger.info("✓ Successfully authenticated with Robinhood (no SMS)")
+                        return
+                    except Exception as no_sms_error:
+                        logger.error("✗ Authentication without SMS failed: %s", no_sms_error)
+                        raise
+                        
+            except KeyError as e:
+                # Handle missing 'detail' key in error response
+                logger.error("")
+                logger.error("Authentication response error (missing '%s' key). This may indicate:", e)
+                logger.error("  - Account locked or suspended")
+                logger.error("  - MFA/2FA verification required")
+                logger.error("  - Invalid credentials")
+                logger.error("  - IP address blocked")
+                logger.error("  - Robinhood API change or maintenance")
+                logger.info("")
+                logger.info("Troubleshooting steps:")
+                logger.info("  1. Verify your credentials in .env file")
+                logger.info("  2. Check if your account needs verification on Robinhood app/website")
+                logger.info("  3. Set ROBINHOOD_MFA_CODE in .env if you have 2FA enabled")
+                logger.info("  4. Wait a few minutes and try again if rate-limited")
+                logger.info("")
+                
+                if attempt < max_retries:
+                    logger.info("Waiting %d seconds before retry... (attempt %d/%d)", retry_delay, attempt, max_retries)
+                    logger.info("=" * 60)
+                    time.sleep(retry_delay)
+                else:
+                    logger.error("=" * 60)
+                    logger.error("All authentication attempts exhausted.")
+                    logger.error("=" * 60)
+                    raise ConnectionError(
+                        f"Failed to authenticate after {max_retries} attempts. "
+                        "Please check your credentials and account status."
+                    ) from e
+                    
+            except Exception as e:
+                logger.error("✗ Authentication failed: %s", e)
+                logger.info("")
+                
+                if attempt < max_retries:
+                    logger.info("Waiting %d seconds before retry... (attempt %d/%d)", retry_delay, attempt, max_retries)
+                    logger.info("=" * 60)
+                    time.sleep(retry_delay)
+                else:
+                    logger.error("=" * 60)
+                    logger.error("All authentication attempts exhausted.")
+                    logger.error("=" * 60)
+                    raise ConnectionError(
+                        f"Failed to connect to Robinhood after {max_retries} attempts: {e}"
+                    ) from e
 
     def calculate_strategy_signals(self, ticker: str) -> Dict[StrategyType, float]:
         """

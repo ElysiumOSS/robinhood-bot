@@ -29,9 +29,12 @@ class RobinhoodCredentials:
 
     user: str = os.getenv("ROBINHOOD_USER")
     password: str = os.getenv("ROBINHOOD_PASS")
+    mfa_code: str = os.getenv("ROBINHOOD_MFA_CODE", "")  # Optional MFA code
 
     def __post_init__(self) -> None:
         logger.info("Loaded credentials for user: %s", self.user)
+        if self.mfa_code:
+            logger.info("MFA code found in environment variables")
 
     @property
     def empty_credentials(self) -> bool:

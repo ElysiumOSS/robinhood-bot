@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 # 1) your legacy/static fallback
-_STATIC_TICKER_TO_COMPANY = {
+_STATIC_TICKER_TO_COMPANY: dict[str, str] = {
     "AAPL": "Apple Inc",
     "GOOGL": "Alphabet Inc",
     "MSFT": "Microsoft Corporation",
@@ -27,65 +27,50 @@ _STATIC_TICKER_TO_COMPANY = {
 CACHE_PATH = pathlib.Path(".ticker_cache.json")
 
 # 3) pick a remote source
-#    - IEX Cloud has /ref-data/symbols: returns *all* symbols with names, but needs a token. :contentReference[oaicite:0]{index=0}
-#    - Yahoo-style unofficial endpoints can give you company info by ticker. :contentReference[oaicite:1]{index=1}
-#    Below is a tiny Yahoo-like fetcher (no extra deps). Swap with IEX if you prefer.
+#    - Alpha Vantage unofficial endpoints can give you company info by ticker.
+#    Below is a tiny Alpha Vantage-like fetcher (no extra deps).
 
 
-def _fetch_name_from_yahoo(ticker: str) -> str | None:
+def _fetch_name_from_alpha_vantage(ticker: str) -> str | None:
     """
-    Fetch company name for a ticker from a Yahoo-like endpoint.
-    This mirrors the idea shown in multiple Yahoo Finance examples. :contentReference[oaicite:2]{index=2}
+    Fetch company name for a ticker from a Alpha Vantage-like endpoint.
+    This mirrors the idea shown in multiple Alpha Vantage Finance examples.
     """
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    if not api_key:
+        return None
+
     # endpoint that returns quote summary-ish JSON; there are many variants in the wild
-    url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=price"
+    url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={api_key}"
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
             data = json.load(resp)
-    except (urllib.error.URLError, TimeoutError, ValueError):
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
 
     try:
-        return data["quoteSummary"]["result"][0]["price"]["longName"]
+        return data["Name"]
     except (KeyError, TypeError, IndexError):
-        # some tickers only have shortName
-        try:
-            return data["quoteSummary"]["result"][0]["price"]["shortName"]
-        except (KeyError, TypeError, IndexError):
-            return None
-
-
-def _fetch_all_from_iex() -> dict[str, str]:
-    """
-    Fetch ALL symbols from IEX Cloud and build a dict.
-    Needs IEX_TOKEN in env. :contentReference[oaicite:3]{index=3}
-    """
-    token = os.getenv("IEX_TOKEN")
-    if not token:
-        return {}
-
-    url = f"https://cloud.iexapis.com/stable/ref-data/symbols?token={token}"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            rows = json.load(resp)
-    except (urllib.error.URLError, TimeoutError, ValueError):
-        return {}
-
-    # rows look like: {"symbol": "AAPL", "name": "Apple Inc.", ...}
-    return {row["symbol"].upper(): row.get("name", "").strip() for row in rows if row.get("symbol")}
+        return None
 
 
 # 4) file cache helpers --------------------------------------------------------
 def _load_cache() -> dict[str, str]:
-    if CACHE_PATH.exists():
-        try:
-            return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-        except (KeyError, TypeError, IndexError):
+    """Load the ticker cache from a local file, safely handling errors."""
+    if not CACHE_PATH.is_file():
+        return {}
+    try:
+        data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
             return {}
-    return {}
+        # Filter for string keys and non-empty string values to ensure type safety
+        return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str) and v}
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _save_cache(cache: dict[str, str]) -> None:
+    """Save the ticker cache to a local file."""
     try:
         CACHE_PATH.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
     except (OSError, ValueError):
@@ -99,25 +84,20 @@ def get_company_name(ticker: str) -> str | None:
     """
     Get the company name for a ticker, trying:
     1. in-memory/file cache
-    2. remote (IEX if token, else Yahoo)
+    2. remote (Alpha Vantage)
     3. static fallback
     """
     t = ticker.upper().strip()
+    if not t:
+        return None
 
     # 1) check file cache
     cache = _load_cache()
-    if t in cache and cache[t]:
+    if t in cache:
         return cache[t]
 
     # 2) try remote
-    name = None
-    # prefer IEX if you have a token
-    iex_map = _fetch_all_from_iex()
-    if iex_map and t in iex_map:
-        name = iex_map[t]
-    else:
-        # otherwise try yahoo-style single lookup
-        name = _fetch_name_from_yahoo(t)
+    name = _fetch_name_from_alpha_vantage(t)
 
     if name:
         cache[t] = name
@@ -129,15 +109,17 @@ def get_company_name(ticker: str) -> str | None:
 
 
 # 6) if you still want a dict-like object:
-class DynamicTickerMap(dict):
+class DynamicTickerMap(dict[str, str]):
     """
     dict-ish object that resolves missing tickers dynamically.
     """
 
     def __missing__(self, key: str) -> str:
+        if not isinstance(key, str):
+            raise KeyError(key)
         name = get_company_name(key)
         if name is None:
-            raise KeyError(key)
+            raise KeyError(f"Ticker '{key}' not found")
         # cache in the instance too
         self[key] = name
         return name
