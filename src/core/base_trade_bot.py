@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import pandas as pd
-import pyotp
 import robin_stocks.robinhood as robinhood
 
 from src.core.config import OrderType, StrategyType, TradingConfig
@@ -42,28 +41,12 @@ class TradeBot:
     def _authenticate(self) -> None:
         """Handle Robinhood authentication with improved error handling."""
         credentials = RobinhoodCredentials()
-        totp = None
 
         logger.debug("Starting authentication process.")
         logger.debug("User: %s", credentials.user)
 
-        if credentials.mfa_code:
-            logger.debug("MFA code is provided, attempting to generate TOTP.")
-            try:
-                totp = pyotp.TOTP(credentials.mfa_code).now()
-            except Exception as e:
-                logger.error("Failed to generate MFA code: %s", e)
-                logger.debug("Ensure the MFA code is a valid base32 string.")
-                raise ValueError("Invalid MFA configuration") from e
-
         try:
-            robinhood.login(
-                credentials.user,
-                credentials.password,
-                mfa_code=totp,
-                expiresIn=86400,
-                by_sms=False,
-            )
+            robinhood.login(credentials.user, credentials.password, expiresIn=86400, by_sms=False)
             logger.info("Successfully authenticated with Robinhood")
         except Exception as e:
             logger.error("Authentication failed: %s", e)
@@ -323,7 +306,8 @@ class TradeBot:
             return 0.0
 
     def get_current_positions(self) -> Dict[str, Position]:
-        """Retrieve the current positions held in the account."""
+        """
+        Retrieve the current positions held in the account."""
         try:
             positions = robinhood.account.get_open_stock_positions()
             positions_dict = {}

@@ -29,7 +29,6 @@ class RobinhoodCredentials:
 
     user: str = os.getenv("ROBINHOOD_USER")
     password: str = os.getenv("ROBINHOOD_PASS")
-    mfa_code: str = os.getenv("ROBINHOOD_MFA_CODE")
 
     def __post_init__(self) -> None:
         logger.info("Loaded credentials for user: %s", self.user)
@@ -37,4 +36,4 @@ class RobinhoodCredentials:
     @property
     def empty_credentials(self) -> bool:
         """Returns True is any credential is empty; False otherwise"""
-        return not (bool(self.user) and bool(self.password) and bool(self.mfa_code))
+        return not (bool(self.user) and bool(self.password))
