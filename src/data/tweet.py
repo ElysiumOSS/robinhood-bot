@@ -1,11 +1,4 @@
-
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
-#
-# Copyright (C) 2021-2025
-#
-# All rights reserved.
-#
+"""This module contains the Tweet class."""
 
 from dataclasses import dataclass
 from datetime import datetime

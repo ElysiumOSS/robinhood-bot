@@ -1,5 +1,7 @@
 #!/bin/sh
+# initialize.sh
 
+# --- Virtual Environment and Dependency Installation (No Changes Here) ---
 if [ ! -d "env" ]; then
     echo "Creating virtual environment: env"
     python3 -m venv env
@@ -13,18 +15,12 @@ if [ ! -d "env" ]; then
     echo "Done!"
 fi
 
-TWITTER_CONSUMER_KEY=""
-TWITTER_CONSUMER_SECRET=""
-ROBINHOOD_USER=""
-ROBINHOOD_PASS=""
-ROBINHOOD_MFA_CODE=""
+# --- Secure .env File Creation ---
 if [ ! -f ".env" ]; then
-    echo "Creating .env file to store environment variables..."
-    touch .env
-    echo "TWITTER_CONSUMER_KEY = \"$TWITTER_CONSUMER_KEY\"" >> .env
-    echo "TWITTER_CONSUMER_SECRET = \"$TWITTER_CONSUMER_SECRET\"" >> .env
-    echo "ROBINHOOD_USER = \"$ROBINHOOD_USER\"" >> .env
-    echo "ROBINHOOD_PASS = \"$ROBINHOOD_PASS\"" >> .env
-    echo "ROBINHOOD_MFA_CODE = \"$ROBINHOOD_MFA_CODE\"" >> .env
-    echo "Done!"
+    echo "Creating .env file from template..."
+    # Copy the template to a new .env file for the user to fill out.
+    cp .env.example .env
+    echo "Done! Please edit the .env file with your credentials."
+else
+    echo ".env file already exists. Skipping creation."
 fi

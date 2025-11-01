@@ -1,10 +1,11 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
+"""This module contains the PortfolioManager class."""
 
 from dataclasses import dataclass
-import numpy as np
 from typing import Dict
+
+import numpy as np
+
+from src.data.position import Position
 
 
 @dataclass
@@ -13,7 +14,7 @@ class PortfolioMetrics:
 
     total_equity: float
     cash_available: float
-    positions: Dict[str, float]
+    positions: Dict[str, Position]
     sector_exposure: Dict[str, float]
     beta_weighted_delta: float
     sharpe_ratio: float
@@ -32,11 +33,9 @@ class PortfolioManager:
         """
         self.initial_capital = initial_capital
         self.max_position_size = max_position_size
-        self.positions: Dict[str, Dict] = {}
+        self.positions: Dict[str, Position] = {}
 
-    def calculate_position_size(
-        self, ticker: str, signal_strength: float, volatility: float
-    ) -> float:
+    def calculate_position_size(self, ticker: str, signal_strength: float, volatility: float) -> float:
         """
         Calculate optimal position size using Kelly Criterion and volatility adjustment.
 
@@ -51,9 +50,7 @@ class PortfolioManager:
         # Kelly Criterion calculation
         win_rate = 0.55  # Historical win rate
         win_loss_ratio = 1.5  # Historical profit/loss ratio
-        kelly_percentage = (
-            win_rate * win_loss_ratio - (1 - win_rate)
-        ) / win_loss_ratio
+        kelly_percentage = (win_rate * win_loss_ratio - (1 - win_rate)) / win_loss_ratio
 
         # Volatility adjustment
         vol_factor = np.exp(-volatility)
@@ -72,7 +69,7 @@ class PortfolioManager:
 
         :return: A PortfolioMetrics object.
         """
-        total_equity = sum(pos["market_value"] for pos in self.positions.values())
+        total_equity = sum(pos.equity for pos in self.positions.values())
 
         return PortfolioMetrics(
             total_equity=total_equity,

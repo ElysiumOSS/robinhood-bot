@@ -29,8 +29,8 @@ Automate your Robinhood trades with custom and pre-built algorithmic strategies,
     *   [Installation](#installation)
     *   [Configuration](#configuration)
 *   [💡 Usage & Workflows](#usage--workflows)
-    *   [Using Existing TradeBots](#using-existing-tradebots)
-    *   [Creating a Custom TradeBot](#creating-a-custom-tradebot)
+    *   [Using Existing Strategies](#using-existing-strategies)
+    *   [Creating a Custom Strategy](#creating-a-custom-strategy)
     *   [Sample Algorithm Explanations](#sample-algorithm-explanations)
 *   [⚠️ Limitations, Known Issues & Future Roadmap](#limitations-known-issues--future-roadmap)
     *   [Current Limitations](#current-limitations)
@@ -82,11 +82,11 @@ This Robinhood Trading Bot comes packed with features to get you started and pro
     *   **Simple Moving Average (SMA)**: Analyzes 50-day and 200-day moving averages for buy/sell signals.
     *   **Volume-Weighted Average Price (VWAP)**: Compares current price against VWAP for short-term entry/exit.
     *   **Twitter Sentiment Analysis**: Leverages real-time tweet sentiment to inform trading decisions.
-*   🛠️ **Customizable Bot Framework**: Easily create your own unique trading algorithms by extending the `BaseTradeBot` class.
+*   🛠️ **Configurable Bot Framework**: Easily create your own unique trading algorithms by adding new strategy functions.
 *   🔐 **Secure Configuration**: Utilizes environment variables (`.env`) for sensitive API keys and credentials, keeping them out of source control.
 *   ⚙️ **Automated Setup**: A simple `initialize.sh` script handles virtual environment creation, dependency installation, and `.env` file generation.
 *   📏 **Code Quality & Consistency**: Integrated `black`, `isort`, and `pre-commit` hooks ensure a clean and maintainable codebase.
-*   📖 **Comprehensive Documentation**: Clear examples and explanations for both using existing bots and developing new ones.
+*   📖 **Comprehensive Documentation**: Clear examples and explanations for both using existing strategies and developing new ones.
 
 <p align="right"><a href="#top">Back to top</a></p>
 
@@ -102,8 +102,8 @@ The system follows a client-server interaction pattern where your bot acts as a 
 ```mermaid
 graph TD
     A[User Script] --> B(TradeBot Instance)
-    B --> C{BaseTradeBot Logic}
-    C --> D[src/utilities.py]
+    B --> C{TradeBot Logic}
+    C --> D[src/bots/trading_strategies.py]
     D -- Robinhood API Wrapper --> E(Robinhood API)
     D -- Twitter API Library --> F(Twitter API)
     E -- Market Data & Order Execution --> G[Robinhood Platform]
@@ -115,23 +115,23 @@ graph TD
 ### Core Components
 
 *   `src/bots/base_trade_bot.py`:
-    *   🔍 **Base Trade Bot**: An abstract base class that all specific trading bots must inherit from. It defines the core `trade()` method and the abstract `make_order_recommendation()` method, enforcing a common interface. Handles Robinhood authentication and order execution.
-*   `src/bots/*.py`:
-    *   🚀 **Specific Trading Bots**: Modules like `simple_moving_average.py`, `volume_weighted_average_price.py`, and `twitter_sentiments.py`. Each implements a distinct trading strategy by overriding `make_order_recommendation()`.
+    *   🔍 **TradeBot**: The core trading bot class. It handles configuration, authentication, strategy execution, and order placement.
+*   `src/bots/trading_strategies.py`:
+    *   🚀 **Strategy Functions**: A collection of functions, each implementing a distinct trading strategy (e.g., `calculate_sma_signal`, `calculate_sentiment_signal`).
 *   `src/utilities.py`:
-    *   💡 **Utility Functions**: Contains helper functions for interacting with external APIs (like `robin_stocks` for Robinhood and `tweepy` for Twitter), fetching market data, and performing common calculations.
+    *   💡 **Utility Functions**: Contains helper classes for managing credentials.
 *   `src/bots/config.py`:
-    *   ⚙️ **Configuration Management**: Handles loading environment variables and other configuration settings.
+    *   ⚙️ **Configuration Management**: Defines dataclasses for configuring all aspects of the bot, from strategies to risk management.
 *   `initialize.sh`:
     *   🛠️ **Setup Script**: A shell script to automate the initial setup process: virtual environment creation, dependency installation, pre-commit hook setup, and `.env` file generation.
-*   `.env`:
-    *   🔐 **Environment Variables**: Stores sensitive credentials (Robinhood, Twitter) securely, separate from the codebase.
+*   `.env.example`:
+    *   🔐 **Environment Variables Template**: A template for the required environment variables.
 
 ### Technology Stack
 
 *   **Python**: The core language for the application. (Recommended: Python 3.8+)
 *   **robin_stocks**: A comprehensive Python wrapper for the Robinhood API, used for authentication, fetching market data, and placing orders.
-*   **tweepy**: A user-friendly Python library for accessing the Twitter API, primarily used in the `TwitterSentiment` bot for data collection.
+*   **tweepy**: A user-friendly Python library for accessing the Twitter API, primarily used in the sentiment analysis strategy.
 *   **pandas**: Utilized for data manipulation and analysis, especially for handling historical stock data and moving average calculations.
 *   **numpy**: Provides fundamental support for numerical operations.
 *   **python-dotenv**: For loading environment variables from a `.env` file.
@@ -153,7 +153,7 @@ Before you begin, ensure you have the following:
 
 *   **Python 3.8+**: Download and install from [python.org](https://www.python.org/downloads/).
 *   **Robinhood Account**: You will need an active Robinhood brokerage account.
-*   **Twitter API Keys (Optional)**: If you plan to use the `TwitterSentiment` bot, you'll need a [Twitter Developer Account](https://developer.twitter.com/en/portal/dashboard) to obtain API keys (`Consumer Key` and `Consumer Secret`).
+*   **Twitter API Keys (Optional)**: If you plan to use the sentiment analysis strategy, you'll need a [Twitter Developer Account](https://developer.twitter.com/en/portal/dashboard) to obtain API keys (`Consumer Key` and `Consumer Secret`).
 *   **Multi-Factor Authentication (MFA) Setup for Robinhood**:
     *   Log into your Robinhood account.
     *   Navigate to `Menu` > `Security and privacy` > `Two-Factor Authentication`.
@@ -183,7 +183,7 @@ Before you begin, ensure you have the following:
     3.  Upgrades `pip` to the latest version.
     4.  Installs all Python dependencies listed in `requirements.txt`.
     5.  Installs `pre-commit` hooks for automatic code formatting and linting.
-    6.  Creates a `.env` file if it doesn't exist, populating it with placeholder environment variables for Robinhood and Twitter.
+    6.  Creates a `.env` file from the `.env.example` template if it doesn't exist.
     </details>
 
 ### Configuration
@@ -200,14 +200,20 @@ After running `initialize.sh`, you **must** update the `.env` file with your act
     Replace the placeholder values with your actual Robinhood and (optional) Twitter API credentials.
 
     ```dotenv
+    # .env.example
+    # This file is a template for the required environment variables.
+    # Copy this file to .env and fill in your actual credentials.
+    # Do NOT commit the .env file to version control.
+
+    # Twitter API Credentials (Optional - only for sentiment analysis bot)
     TWITTER_CONSUMER_KEY="YOUR_TWITTER_CONSUMER_KEY"
     TWITTER_CONSUMER_SECRET="YOUR_TWITTER_CONSUMER_SECRET"
+
+    # Robinhood Credentials
     ROBINHOOD_USER="YOUR_ROBINHOOD_EMAIL"
     ROBINHOOD_PASS="YOUR_ROBINHOOD_PASSWORD"
-    ROBINHOOD_MFA_CODE="YOUR_ROBINHOOD_MFA_SECRET_KEY" # The key Robinhood gives you for authenticator app setup
+    ROBINHOOD_MFA_CODE="YOUR_ROBINHOOD_MFA_SECRET_KEY"
     ```
-
-    ⚠️ **SECURITY WARNING**: The `initialize.sh` script, as provided, contains *example* hardcoded credentials. **Do not use the provided `initialize.sh` directly in a production environment or without immediately replacing these with your actual, private credentials.** Always treat your API keys and passwords as highly sensitive information.
 
 3.  **Activate your virtual environment**:
     Always ensure your virtual environment is active when running the bot or installing packages.
@@ -221,117 +227,93 @@ After running `initialize.sh`, you **must** update the `.env` file with your act
 
 ## 💡 Usage & Workflows
 
-Once configured, you can start using the existing TradeBots or create your own custom strategies.
+Once configured, you can start using the existing strategies or create your own.
 
-### Using Existing TradeBots
+### Using Existing Strategies
 
-To use one of the pre-built trading algorithms, create a new Python script in the project's root directory.
+To use the pre-built trading algorithms, create a new Python script in the project's root directory.
 
-1.  **Import the desired TradeBot**:
-    For example, to use the Simple Moving Average bot:
+1.  **Import and Configure the `TradeBot`**:
     ```python
-    # my_sma_trade.py
-    from src.bots.simple_moving_average import TradeBotSimpleMovingAverage
+    # my_trade.py
+    from src.bots.base_trade_bot import TradeBot
+    from src.bots.config import TradingConfig, StrategyType
 
-    # 1. Initialize the TradeBot
-    trade_bot = TradeBotSimpleMovingAverage()
+    # 1. Configure the strategies you want to use
+    my_config = TradingConfig(
+        enabled_strategies=[
+            StrategyType.SMA_CROSSOVER,
+            StrategyType.SENTIMENT,
+        ],
+        strategy_weights={
+            StrategyType.SMA_CROSSOVER: 0.6,
+            StrategyType.SENTIMENT: 0.4,
+        }
+    )
 
-    # 2. Execute a trade recommendation
-    # The bot will decide whether to BUY, SELL, or DO_NOTHING based on its algorithm.
-    # It will attempt a trade for $5.00 of AAPL stock if a recommendation is made.
-    trade_bot.trade(ticker="AAPL", amount_in_dollars=5.00)
+    # 2. Initialize the TradeBot with your configuration
+    trade_bot = TradeBot(config=my_config)
 
-    # Example with Volume-Weighted Average Price Bot
-    # from src.bots.volume_weighted_average_price import TradeBotVolumeWeightedAveragePrice
-    # vwap_bot = TradeBotVolumeWeightedAveragePrice()
-    # vwap_bot.trade(ticker="MSFT", amount_in_dollars=10.00)
-
-    # Example with Twitter Sentiment Bot (requires Twitter API keys)
-    # from src.bots.twitter_sentiments import TradeBotTwitterSentiments
-    # twitter_bot = TradeBotTwitterSentiments()
-    # twitter_bot.trade(ticker="TSLA", amount_in_dollars=20.00)
+    # 3. Execute a trade decision for a specific ticker
+    trade_bot.execute_trade_decision(ticker="AAPL")
     ```
 
 2.  **Run your script**:
     Make sure your virtual environment is active.
     ```bash
-    python my_sma_trade.py
+    python my_trade.py
     ```
 
-    The `trade()` function will connect to Robinhood, fetch necessary data, apply the bot's algorithm to `make_order_recommendation()`, and execute the trade if a BUY or SELL signal is generated.
+    The `execute_trade_decision()` function will connect to Robinhood, fetch necessary data, apply the configured strategies, and execute a trade if the combined signal meets the configured thresholds.
 
-### Creating a Custom TradeBot
+### Creating a Custom Strategy
 
-The framework is designed for easy extension. You can create your own custom trading logic by inheriting from `BaseTradeBot`.
+The framework is designed for easy extension. You can create your own custom trading logic by adding a new strategy function.
 
-1.  **Create a new module**:
-    In `src/bots/`, create a new Python file (e.g., `my_custom_bot.py`).
-
-2.  **Define your Custom TradeBot**:
-    Your new bot must inherit from `BaseTradeBot` and override the `make_order_recommendation()` method. This method is where your unique algorithm resides. It must return an `OrderType` enum (`BUY`, `SELL`, or `DO_NOTHING`).
+1.  **Create a new function in `trading_strategies.py`**:
+    In `src/bots/trading_strategies.py`, create a new Python function that takes a ticker and a configuration object as input and returns a float between -1.0 (strong sell) and 1.0 (strong buy).
 
     ```python
-    # src/bots/my_custom_bot.py
-    from src.bots.base_trade_bot import BaseTradeBot, OrderType
-    # Import any other necessary libraries (e.g., pandas, numpy, custom indicators)
+    # src/bots/trading_strategies.py
 
-    class TradeBotCustomStrategy(BaseTradeBot):
-        def __init__(self):
-            super().__init__()
-            self.name = "CustomStrategyBot" # Give your bot a unique name
-
-        def make_order_recommendation(self, ticker: str) -> OrderType:
-            """
-            Implement your custom trading algorithm here.
-            Analyze data for the given ticker and return a BUY, SELL, or DO_NOTHING recommendation.
-            """
-            self.log_message(f"Running custom strategy for {ticker}")
-
-            # 💡 Example: A very simple (and risky!) custom strategy:
-            # Always buy if the current price is even, otherwise do nothing.
-            try:
-                latest_price = self.get_latest_price(ticker)
-                if latest_price is not None:
-                    if int(latest_price) % 2 == 0:
-                        self.log_message(f"Custom strategy recommends BUY for {ticker} (price: {latest_price})")
-                        return OrderType.BUY
-                    else:
-                        self.log_message(f"Custom strategy recommends DO_NOTHING for {ticker} (price: {latest_price})")
-                        return OrderType.DO_NOTHING
-                else:
-                    self.log_message(f"Could not get latest price for {ticker}. Recommending DO_NOTHING.")
-                    return OrderType.DO_NOTHING
-            except Exception as e:
-                self.log_message(f"Error in custom strategy for {ticker}: {e}. Recommending DO_NOTHING.")
-                return OrderType.DO_NOTHING
-
-            # ⚠️ Replace this with your actual, well-researched algorithm!
-            # This example is purely illustrative and should not be used for actual trading.
-
+    def calculate_my_custom_signal(df: pd.DataFrame, config: MyCustomConfig) -> float:
+        """
+        Implement your custom trading algorithm here.
+        """
+        # Your logic here
+        return 0.0
     ```
 
-3.  **Use your Custom TradeBot**:
-    Create a script in the root directory to instantiate and run your new bot:
+2.  **Add your strategy to `StrategyType`**:
+    In `src/bots/config.py`, add your new strategy to the `StrategyType` enum.
 
     ```python
-    # run_custom_bot.py
-    from src.bots.my_custom_bot import TradeBotCustomStrategy
+    # src/bots/config.py
 
-    custom_bot = TradeBotCustomStrategy()
-    custom_bot.trade(ticker="GOOG", amount_in_dollars=15.00)
+    class StrategyType(Enum):
+        # ... existing strategies
+        MY_CUSTOM_STRATEGY = "my_custom_strategy"
     ```
 
-    Then run it:
-    ```bash
-    python run_custom_bot.py
+3.  **Integrate your strategy into `TradeBot`**:
+    In `src/bots/base_trade_bot.py`, update the `calculate_strategy_signals` method to include your new strategy.
+
+    ```python
+    # src/bots/base_trade_bot.py
+
+    # ... inside calculate_strategy_signals
+            elif strategy == StrategyType.MY_CUSTOM_STRATEGY:
+                signals[strategy] = calculate_my_custom_signal(
+                    df, self.config.my_custom_config
+                )
     ```
 
 ### Sample Algorithm Explanations
 
-Here's a brief overview of the algorithms implemented in the existing bots:
+Here's a brief overview of the algorithms implemented in the existing strategies:
 
 <details>
-<summary><h4>📈 Moving Average Comparison (<code>TradeBotSimpleMovingAverage</code>)</h4></summary>
+<summary><h4>📈 Moving Average Comparison (<code>calculate_sma_signal</code>)</h4></summary>
 This algorithm calculates two Simple Moving Averages (SMAs): a 50-day SMA and a 200-day SMA. These are derived from historical stock prices.
 *   **Buy Recommendation**: Made when the 50-day moving average is strictly greater than the 200-day moving average (a "golden cross" signal, often considered bullish).
 *   **Sell Recommendation**: Made when the 50-day moving average is strictly less than the 200-day moving average (a "death cross" signal, often considered bearish).
@@ -339,7 +321,7 @@ This algorithm calculates two Simple Moving Averages (SMAs): a 50-day SMA and a 
 </details>
 
 <details>
-<summary><h4>📊 Volume-Weighted Average Price Comparison (<code>TradeBotVolumeWeightedAveragePrice</code>)</h4></summary>
+<summary><h4>📊 Volume-Weighted Average Price Comparison (<code>calculate_vwap_signal</code>)</h4></summary>
 The Volume-Weighted Average Price (VWAP) is a trading benchmark that represents the average price a security has traded at throughout the day, based on both volume and price. It's calculated by summing the dollar value of all shares traded and dividing by the total shares traded over a specific period.
 *   **Buy Recommendation**: Made when the current price of a security is below its VWAP (suggesting the stock is undervalued or trading at a discount for the day).
 *   **Sell Recommendation**: Made when the current price of a security is above its VWAP (suggesting the stock is overvalued or trading at a premium for the day).
@@ -347,7 +329,7 @@ The Volume-Weighted Average Price (VWAP) is a trading benchmark that represents 
 </details>
 
 <details>
-<summary><h4>🐦 Sentiment Analysis (<code>TradeBotTwitterSentiments</code>)</h4></summary>
+<summary><h4>🐦 Sentiment Analysis (<code>calculate_sentiment_signal</code>)</h4></summary>
 This algorithm harnesses the power of social media by sourcing tweets mentioning a specific company via the Twitter API.
 *   A sentiment analysis is performed on each collected tweet, assigning a score (negative, neutral, or positive).
 *   The average sentiment score for all relevant tweets is calculated.
@@ -370,7 +352,7 @@ Understanding the current state and future direction of the project is crucial.
 *   **No True Backtesting**: The current framework does not include a dedicated backtesting module to evaluate strategy performance on historical data.
 *   **Basic Risk Management**: Lacks advanced risk management features like stop-loss, take-profit orders, or portfolio-level risk assessment.
 *   **Robinhood API Constraints**: Dependent on `robin_stocks` library and Robinhood's public API limitations, which may include rate limits, available order types, and data refresh rates.
-*   **Single Ticker Focus**: Bots are designed to trade one ticker at a time per execution; no multi-asset portfolio management.
+*   **Single Ticker Focus**: The bot is designed to trade one ticker at a time per execution; no multi-asset portfolio management.
 *   **No Persistent State**: Bot state (e.g., open positions, historical trades for analysis) is not persistently stored by the bot itself across runs.
 
 ### Known Issues
@@ -384,7 +366,6 @@ The following enhancements are planned or under consideration:
 *   **🛡️ Advanced Risk Management**: Integrate features like configurable stop-loss/take-profit, position sizing, and diversified portfolio management.
 *   **🐳 Dockerization**: Provide Docker images and Docker Compose configurations for easier deployment and environment consistency.
 *   **🌐 Web User Interface (UI)**: Develop a simple web interface for monitoring bot activity, configuring strategies, and viewing performance.
-*   **🔄 More Trading Algorithms**: Expand the library of pre-built strategies (e.g., Bollinger Bands, RSI, MACD).
 *   **📊 Performance Tracking & Reporting**: Implement logging and reporting tools to track bot performance over time.
 *   **🔄 Recurring Trades**: Add functionality to schedule trades at specific intervals (e.g., daily, weekly) using a scheduler like `APScheduler` or `Celery`.
 *   **📨 Notification System**: Integrate with messaging services (e.g., email, Discord, Telegram) for trade alerts and status updates.
@@ -562,6 +543,12 @@ This typically means a required package wasn't installed correctly or your virtu
 
 ### Changelog
 
+**v1.1.0 - Refactoring and Unification (2025-11-01)**
+*   Refactored the bot architecture to use a single, configuration-driven `TradeBot`.
+*   Removed the standalone `TradeBotTwitterSentiments` and integrated it as a configurable strategy.
+*   Improved security by using a `.env.example` file and updating the `initialize.sh` script.
+*   Removed obsolete `sample.py` file.
+
 **v1.0.0 - Initial Release (2022-XX-XX)**
 *   Core framework for Robinhood bot with `BaseTradeBot`.
 *   Implemented Simple Moving Average (SMA) strategy.
@@ -573,7 +560,7 @@ This typically means a required package wasn't installed correctly or your virtu
 *   MIT License.
 
 **Future Releases**
-*   (Planned) v1.1.0: Backtesting module and enhanced logging.
-*   (Planned) v1.2.0: Dockerization for easier deployment.
+*   (Planned) v1.2.0: Backtesting module and enhanced logging.
+*   (Planned) v1.3.0: Dockerization for easier deployment.
 
 <p align="right"><a href="#top">Back to top</a></p>

@@ -1,12 +1,13 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
+"""This module contains the configuration classes for the trading bot."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from datetime import datetime, time, timedelta
 from enum import Enum, auto
+from typing import Dict, List
+
 import numpy as np
-from datetime import timedelta, datetime, time
 
 
 class OrderType(Enum):
@@ -82,10 +83,10 @@ class TechnicalIndicatorsConfig:
     momentum_lookback_period: int = 14
     momentum_threshold: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._validate_indicators()
 
-    def _validate_indicators(self):
+    def _validate_indicators(self) -> None:
         if self.sma_short_period >= self.sma_long_period:
             raise ValueError("Short SMA period must be less than long SMA period")
         if self.vwap_period_days <= 0:
@@ -123,10 +124,10 @@ class RiskManagementConfig:
     enable_trailing_stop: bool = False
     trailing_stop_percentage: float = 0.05
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._validate_risk_parameters()
 
-    def _validate_risk_parameters(self):
+    def _validate_risk_parameters(self) -> None:
         if not 0 < self.min_trade_amount < self.max_trade_amount:
             raise ValueError("Invalid trade amount limits")
         if not 0 < self.max_portfolio_per_stock < 1:
@@ -155,10 +156,10 @@ class SentimentAnalysisConfig:
     sell_threshold: float = -0.15
     confidence_minimum: float = 0.7
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._validate_sentiment_parameters()
 
-    def _validate_sentiment_parameters(self):
+    def _validate_sentiment_parameters(self) -> None:
         if not -1 <= self.sentiment_threshold_sell < self.sentiment_threshold_buy <= 1:
             raise ValueError("Invalid sentiment thresholds")
         if self.max_tweets_analyze < self.min_sentiment_samples:
@@ -177,12 +178,8 @@ class TradingConfig:
             take_profit_percentage=0.03,
         )
     )
-    technical_indicators: TechnicalIndicatorsConfig = field(
-        default_factory=TechnicalIndicatorsConfig
-    )
-    sentiment_analysis: SentimentAnalysisConfig = field(
-        default_factory=SentimentAnalysisConfig
-    )
+    technical_indicators: TechnicalIndicatorsConfig = field(default_factory=TechnicalIndicatorsConfig)
+    sentiment_analysis: SentimentAnalysisConfig = field(default_factory=SentimentAnalysisConfig)
     vwap: VWAPConfig = field(default_factory=VWAPConfig)
 
     trade_interval_hours: int = 4
@@ -212,10 +209,10 @@ class TradingConfig:
     market_regime_aware: bool = True
     trade_threshold: float = 0.015
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._validate_config()
 
-    def _validate_config(self):
+    def _validate_config(self) -> None:
         """Validate the complete trading configuration."""
         if self.trade_interval_hours <= 0:
             raise ValueError("Trade interval must be positive")
@@ -231,9 +228,7 @@ class TradingConfig:
         """Get trading interval as timedelta."""
         return timedelta(hours=self.trade_interval_hours)
 
-    def adjust_thresholds_for_volatility(
-        self, historical_volatility: float
-    ) -> None:
+    def adjust_thresholds_for_volatility(self, historical_volatility: float) -> None:
         """
         Adjust thresholds based on market volatility.
 
@@ -245,11 +240,12 @@ class TradingConfig:
             self.risk_management.take_profit_percentage *= volatility_factor
             self.technical_indicators.vwap_threshold *= volatility_factor
 
-    def get_position_size(self, account_value: float) -> float:
+    def get_position_size(self, account_value: float, volatility: float) -> float:
         """
         Calculate position size using Kelly Criterion if enabled.
 
         :param account_value: The total value of the account.
+        :param volatility: The volatility of the stock.
         :return: The size of the position to take.
         """
         if not self.risk_management.position_sizing_kelly:
@@ -261,13 +257,9 @@ class TradingConfig:
         win_rate = self.risk_management.win_rate
         risk_ratio = self.risk_management.risk_reward_ratio
         kelly_percentage = (win_rate * risk_ratio - (1 - win_rate)) / risk_ratio
-        kelly_percentage = min(
-            kelly_percentage, self.risk_management.max_portfolio_per_stock
-        )
+        kelly_percentage = min(kelly_percentage, self.risk_management.max_portfolio_per_stock)
 
-        return min(
-            account_value * kelly_percentage, self.risk_management.max_trade_amount
-        )
+        return min(account_value * kelly_percentage, self.risk_management.max_trade_amount)
 
     def should_trade_now(self, current_time: datetime) -> bool:
         """
@@ -292,9 +284,7 @@ class TradingConfig:
             return market_open <= current_time <= market_close
         return True
 
-    def get_strategy_decision(
-        self, strategy_signals: Dict[StrategyType, float]
-    ) -> float:
+    def get_strategy_decision(self, strategy_signals: Dict[StrategyType, float]) -> float:
         """
         Calculate weighted strategy decision.
 

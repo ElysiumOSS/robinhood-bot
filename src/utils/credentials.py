@@ -1,10 +1,11 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
+"""This module contains utility classes and functions for the trading bot."""
 
 import os
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
+
+from src.utils.logger import logger
 
 load_dotenv()
 
@@ -30,8 +31,8 @@ class RobinhoodCredentials:
     password: str = os.getenv("ROBINHOOD_PASS")
     mfa_code: str = os.getenv("ROBINHOOD_MFA_CODE")
 
-    def __post_init__(self):
-        print(f"Loaded credentials: User={self.user}")
+    def __post_init__(self) -> None:
+        logger.info("Loaded credentials for user: %s", self.user)
 
     @property
     def empty_credentials(self) -> bool:

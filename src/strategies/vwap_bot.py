@@ -2,14 +2,28 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 import numpy as np
 import pandas as pd
 
-from src.bots.base_trade_bot import OrderResult, TradeBot, logger
-from src.bots.config import OrderType, TradingConfig
-from src.bots.position import Position
+from src.core.base_trade_bot import TradeBot
+from src.core.config import OrderType, TradingConfig
+from src.data.order_result import OrderResult
+from src.data.position import Position
+from src.utils.logger import logger
+
+
+class PerformanceSummary(TypedDict):
+    """A dictionary representing the performance summary."""
+
+    total_trades: int
+    win_rate: str
+    total_profit_loss: str
+    average_profit_per_trade: str
+    max_drawdown: str
+    sharpe_ratio: str
+    last_updated: str
 
 
 @dataclass
@@ -31,7 +45,7 @@ class TradeBotVWAP(TradeBot):
     def __init__(self, config: Optional[TradingConfig] = None) -> None:
         """Initialize the VWAP trading bot with configuration."""
         super().__init__(config if config else TradingConfig())
-        self.performance_metrics = {
+        self.performance_metrics: Dict[str, Any] = {
             "total_trades": 0,
             "successful_trades": 0,
             "failed_trades": 0,
@@ -53,9 +67,7 @@ class TradeBotVWAP(TradeBot):
             for col in ["close_price", "volume", "high_price", "low_price"]:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-            df["typical_price"] = (
-                df["high_price"] + df["low_price"] + df["close_price"]
-            ) / 3
+            df["typical_price"] = (df["high_price"] + df["low_price"] + df["close_price"]) / 3
 
             df["cum_vol"] = df["volume"].cumsum()
             df["cum_vol_price"] = (df["typical_price"] * df["volume"]).cumsum()
@@ -87,12 +99,8 @@ class TradeBotVWAP(TradeBot):
         """Make trading decision based on VWAP analysis and risk management."""
         try:
             # Get both intraday and daily data
-            intraday_df = self.get_stock_history_dataframe(
-                ticker, interval="5minute", span="day"
-            )
-            daily_df = self.get_stock_history_dataframe(
-                ticker, interval="day", span="year"
-            )
+            intraday_df = self.get_stock_history_dataframe(ticker, interval="5minute", span="day")
+            daily_df = self.get_stock_history_dataframe(ticker, interval="day", span="year")
 
             intraday_metrics = self.calculate_vwap_metrics(intraday_df)
             daily_metrics = self.calculate_vwap_metrics(daily_df)
@@ -102,18 +110,12 @@ class TradeBotVWAP(TradeBot):
                     return OrderType.SELL_RECOMMENDATION
 
             threshold = (
-                intraday_metrics.std_dev / intraday_metrics.vwap
-                if self.config.vwap.enable_dynamic_threshold
-                else 0.01
+                intraday_metrics.std_dev / intraday_metrics.vwap if self.config.vwap.enable_dynamic_threshold else 0.01
             )
 
-            price_to_vwap = (
-                current_price - intraday_metrics.vwap
-            ) / intraday_metrics.vwap
+            price_to_vwap = (current_price - intraday_metrics.vwap) / intraday_metrics.vwap
 
-            sufficient_volume = (
-                intraday_metrics.volume_ratio > self.config.vwap.volume_threshold
-            )
+            sufficient_volume = intraday_metrics.volume_ratio > self.config.vwap.volume_threshold
 
             mean_reversion_threshold = self.config.vwap.mean_reversion_threshold
 
@@ -138,16 +140,12 @@ class TradeBotVWAP(TradeBot):
             logger.error("Error making trading decision: %s", str(e))
             return OrderType.HOLD_RECOMMENDATION
 
-    def _check_risk_management(
-        self, current_price: float, position: Position
-    ) -> bool:
+    def _check_risk_management(self, current_price: float, position: Position) -> bool:
         """Enhanced risk management with trailing stops and volatility-adjusted thresholds."""
         try:
             position_value = current_price * position.quantity
 
-            unrealized_pl = (
-                current_price - position.average_buy_price
-            ) / position.average_buy_price
+            unrealized_pl = (current_price - position.average_buy_price) / position.average_buy_price
 
             position.highest_price = max(position.highest_price, position_value)
 
@@ -160,9 +158,7 @@ class TradeBotVWAP(TradeBot):
                 return True
 
             trailing_stop_distance = self.config.vwap.trailing_stop
-            if (
-                position.highest_price - position_value
-            ) / position.highest_price > trailing_stop_distance:
+            if (position.highest_price - position_value) / position.highest_price > trailing_stop_distance:
                 logger.info(
                     "Trailing stop triggered at %s",
                     position_value / position.highest_price,
@@ -215,9 +211,7 @@ class TradeBotVWAP(TradeBot):
             if total_trades == 0:
                 return
 
-            self.performance_metrics["win_rate"] = (
-                self.performance_metrics["successful_trades"] / total_trades
-            )
+            self.performance_metrics["win_rate"] = self.performance_metrics["successful_trades"] / total_trades
 
             self.performance_metrics["average_profit_per_trade"] = (
                 self.performance_metrics["total_profit_loss"] / total_trades
@@ -241,16 +235,14 @@ class TradeBotVWAP(TradeBot):
                 returns = pd.Series(equity_curve).pct_change().dropna()
                 excess_returns = returns - 0.02 / 252
                 sharpe_ratio = (
-                    np.sqrt(252) * (excess_returns.mean() / excess_returns.std())
-                    if excess_returns.std() != 0
-                    else 0
+                    np.sqrt(252) * (excess_returns.mean() / excess_returns.std()) if excess_returns.std() != 0 else 0
                 )
                 self.performance_metrics["sharpe_ratio"] = sharpe_ratio
 
         except (KeyError, ValueError) as e:
             logger.error("Error updating advanced metrics: %s", str(e))
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> PerformanceSummary:
         """Get a comprehensive summary of trading performance."""
         return {
             "total_trades": self.performance_metrics["total_trades"],

@@ -1,16 +1,24 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
+"""This module contains the TradeBotSimpleMovingAverage class."""
 
-from src.bots.base_trade_bot import OrderType, TradeBot, OrderResult
-from src.bots.config import TradingConfig, StrategyType
-import pandas as pd
-import numpy as np
-from typing import Optional, Dict, Tuple
-import logging
 from datetime import datetime, timezone
+from typing import Dict, Optional, Tuple, TypedDict
 
-logger = logging.getLogger(__name__)
+import numpy as np
+import pandas as pd
+
+from src.core.base_trade_bot import TradeBot
+from src.core.config import StrategyType, TradingConfig, OrderType
+from src.data.order_result import OrderResult
+from src.utils.logger import logger
+
+
+class TechnicalIndicators(TypedDict):
+    """A dictionary representing the technical indicators."""
+
+    sma: float
+    std: float
+    momentum: float
+    volatility: float
 
 
 class TradeBotSimpleMovingAverage(TradeBot):
@@ -31,18 +39,13 @@ class TradeBotSimpleMovingAverage(TradeBot):
 
     def _validate_sma_config(self) -> None:
         """Validate SMA-specific configuration parameters."""
-        if (
-            self.config.technical_indicators.sma_short_period
-            >= self.config.technical_indicators.sma_long_period
-        ):
+        if self.config.technical_indicators.sma_short_period >= self.config.technical_indicators.sma_long_period:
             raise ValueError("Short period must be less than long period")
 
         if self.config.technical_indicators.momentum_lookback_period <= 0:
             raise ValueError("Momentum lookback period must be positive")
 
-    def calculate_technical_indicators(
-        self, df: pd.DataFrame, period: int
-    ) -> Dict[str, float]:
+    def calculate_technical_indicators(self, df: pd.DataFrame, period: int) -> TechnicalIndicators:
         """
         Calculate technical indicators for the given period.
 
@@ -66,25 +69,15 @@ class TradeBotSimpleMovingAverage(TradeBot):
                 return {"sma": 0.0, "std": 0.0, "momentum": 0.0, "volatility": 0.0}
 
             # Calculate SMA and Standard Deviation
-            df["SMA"] = (
-                df["close_price"].rolling(window=period, min_periods=1).mean()
-            )
-            df["STD"] = (
-                df["close_price"].rolling(window=period, min_periods=1).std()
-            )
+            df["SMA"] = df["close_price"].rolling(window=period, min_periods=1).mean()
+            df["STD"] = df["close_price"].rolling(window=period, min_periods=1).std()
 
             # Calculate Momentum (rate of change)
-            df["momentum"] = df["close_price"].pct_change(
-                self.config.technical_indicators.momentum_lookback_period
-            )
+            df["momentum"] = df["close_price"].pct_change(self.config.technical_indicators.momentum_lookback_period)
 
             # Calculate Historical Volatility
-            df["log_return"] = np.log(
-                df["close_price"] / df["close_price"].shift(1)
-            )
-            df["volatility"] = (
-                df["log_return"].rolling(window=period).std() * np.sqrt(252)
-            )
+            df["log_return"] = np.log(df["close_price"] / df["close_price"].shift(1))
+            df["volatility"] = df["log_return"].rolling(window=period).std() * np.sqrt(252)
 
             return {
                 "sma": round(df["SMA"].iloc[-1], 4),
@@ -98,7 +91,7 @@ class TradeBotSimpleMovingAverage(TradeBot):
             return {"sma": 0.0, "std": 0.0, "momentum": 0.0, "volatility": 0.0}
 
     def analyze_market_conditions(
-        self, short_term: Dict[str, float], long_term: Dict[str, float]
+        self, short_term: TechnicalIndicators, long_term: TechnicalIndicators
     ) -> Tuple[float, float, bool]:
         """
         Analyze market conditions using technical indicators.
@@ -119,18 +112,14 @@ class TradeBotSimpleMovingAverage(TradeBot):
 
             # Validate volatility values
             volatility_ratio = (
-                short_term.get("volatility", 0)
-                / long_term.get("volatility", 1)
+                short_term.get("volatility", 0) / long_term.get("volatility", 1)
                 if long_term.get("volatility", 0) > 0
                 else 1.0
             )
 
             trend_strength = abs(price_trend) * (1 + volatility_ratio)
             signal_strength = price_trend * (1 + abs(short_term.get("momentum", 0)))
-            momentum_signal = (
-                short_term.get("momentum", 0)
-                > self.config.technical_indicators.momentum_threshold
-            )
+            momentum_signal = short_term.get("momentum", 0) > self.config.technical_indicators.momentum_threshold
 
             return trend_strength, signal_strength, momentum_signal
 
@@ -138,9 +127,7 @@ class TradeBotSimpleMovingAverage(TradeBot):
             logger.warning("Error in market conditions analysis: %s", str(e))
             return 0.0, 0.0, False
 
-    def calculate_position_size(
-        self, ticker: str, signal_strength: float
-    ) -> float:
+    def calculate_position_size(self, ticker: str, signal_strength: float) -> float:
         """
         Calculate position size based on signal strength and risk parameters.
 
@@ -151,18 +138,14 @@ class TradeBotSimpleMovingAverage(TradeBot):
         account_value = self.get_current_cash_position()
 
         # Use 25% of available cash per trade
-        base_position = min(
-            account_value * 0.25, self.config.risk_management.max_trade_amount
-        )
+        base_position = min(account_value * 0.25, self.config.risk_management.max_trade_amount)
 
         # Adjust based on signal strength
         adjusted_position = base_position * abs(signal_strength)
 
         # Ensure position meets minimum requirements
         return max(
-            min(
-                adjusted_position, self.config.risk_management.max_trade_amount
-            ),
+            min(adjusted_position, self.config.risk_management.max_trade_amount),
             self.config.risk_management.min_trade_amount,
         )
 
@@ -178,9 +161,7 @@ class TradeBotSimpleMovingAverage(TradeBot):
                 return None
 
             # Get historical data and current market conditions
-            stock_history_df = self.get_stock_history_dataframe(
-                ticker, interval="5minute", span="day"
-            )
+            stock_history_df = self.get_stock_history_dataframe(ticker, interval="5minute", span="day")
             current_price = self.get_current_market_price(ticker)
             position = self.get_current_positions().get(ticker)
 
@@ -211,9 +192,7 @@ class TradeBotSimpleMovingAverage(TradeBot):
 
             if signal_strength > threshold and momentum_signal:
                 return OrderType.BUY_RECOMMENDATION
-            elif signal_strength < -threshold or (
-                signal_strength < 0 and not momentum_signal
-            ):
+            if signal_strength < -threshold or (signal_strength < 0 and not momentum_signal):
                 return OrderType.SELL_RECOMMENDATION
 
             return OrderType.HOLD_RECOMMENDATION
@@ -231,16 +210,12 @@ class TradeBotSimpleMovingAverage(TradeBot):
         """
         try:
             if not self.config.should_trade_now(datetime.now(timezone.utc)):
-                return OrderResult(
-                    success=False, error_message="Outside trading hours", amount=0.0
-                )
+                return OrderResult(success=False, error_message="Outside trading hours", amount=0.0)
 
             recommendation = self.make_order_recommendation(ticker)
 
             if recommendation == OrderType.BUY_RECOMMENDATION:
-                stock_history_df = self.get_stock_history_dataframe(
-                    ticker, interval="5minute", span="day"
-                )
+                stock_history_df = self.get_stock_history_dataframe(ticker, interval="5minute", span="day")
                 short_term = self.calculate_technical_indicators(
                     stock_history_df,
                     self.config.technical_indicators.sma_short_period,
@@ -253,20 +228,14 @@ class TradeBotSimpleMovingAverage(TradeBot):
                 signal_strength,
                 _ = self.analyze_market_conditions(short_term, long_term)
                 position_size = self.calculate_position_size(ticker, signal_strength)
-                return self.place_order(
-                    ticker, OrderType.BUY_RECOMMENDATION, position_size
-                )
+                return self.place_order(ticker, OrderType.BUY_RECOMMENDATION, position_size)
 
-            elif recommendation == OrderType.SELL_RECOMMENDATION:
+            if recommendation == OrderType.SELL_RECOMMENDATION:
                 position = self.get_current_positions().get(ticker)
                 if position:
-                    return self.place_order(
-                        ticker, OrderType.SELL_RECOMMENDATION, position.equity
-                    )
+                    return self.place_order(ticker, OrderType.SELL_RECOMMENDATION, position.equity)
 
-            return OrderResult(
-                success=True, error_message="No trade conditions met", amount=0.0
-            )
+            return OrderResult(success=True, error_message="No trade conditions met", amount=0.0)
 
         except (pd.errors.EmptyDataError, KeyError, ValueError) as e:
             logger.error("Error executing trade: %s", str(e))

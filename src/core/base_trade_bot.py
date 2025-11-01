@@ -1,49 +1,25 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:fenc=utf-8
+"""This module contains the base class for all trading bots."""
 
-import logging
-from typing import Dict, Optional, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
 import pandas as pd
 import pyotp
 import robin_stocks.robinhood as robinhood
-from datetime import datetime, timezone
-from dataclasses import dataclass
-from src.utilities import RobinhoodCredentials
-from src.bots.config import TradingConfig, StrategyType, OrderType
-from src.bots.position import Position
-from src.bots.trading_strategies import (
-    calculate_sma_signal,
-    calculate_vwap_signal,
-    calculate_rsi_signal,
+
+from src.core.config import OrderType, StrategyType, TradingConfig
+from src.data.order_result import OrderResult
+from src.data.position import Position
+from src.strategies.trading_strategies import (
     calculate_macd_signal,
+    calculate_rsi_signal,
+    calculate_sentiment_signal,
+    calculate_sma_signal,
     calculate_volatility,
+    calculate_vwap_signal,
 )
-
-# Configure logging to write to a file
-logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG to capture all logs
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("trade_bot.log"),  # Log to a file named trade_bot.log
-        logging.StreamHandler(),  # Also log to the console
-    ],
-)
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class OrderResult:
-    """Data class representing the result of a trading order."""
-
-    success: bool
-    order_id: Optional[str] = None
-    error_message: Optional[str] = None
-    details: Optional[Dict] = None
-    amount: float = 0.0
-    price: float = 0.0
-    timestamp: datetime = datetime.now(timezone.utc)
+from src.utils.credentials import RobinhoodCredentials
+from src.utils.logger import logger
 
 
 class TradeBot:
@@ -91,11 +67,9 @@ class TradeBot:
             logger.info("Successfully authenticated with Robinhood")
         except Exception as e:
             logger.error("Authentication failed: %s", e)
-            raise ConnectionError("Failed to connect to Robinhood: %s" % e) from e
+            raise ConnectionError(f"Failed to connect to Robinhood: {e}") from e
 
-    def calculate_strategy_signals(
-        self, ticker: str
-    ) -> Dict[StrategyType, float]:
+    def calculate_strategy_signals(self, ticker: str) -> Dict[StrategyType, float]:
         """
         Calculate signals for all enabled strategies.
 
@@ -105,35 +79,33 @@ class TradeBot:
         signals = {}
         df = self.get_stock_history_dataframe(ticker, interval="day", span="year")
 
+        # Sentiment analysis does not require a dataframe in the same way
+        if StrategyType.SENTIMENT in self.config.enabled_strategies:
+            signals[StrategyType.SENTIMENT] = calculate_sentiment_signal(ticker, self.config.sentiment_analysis)
+
         if df.empty:
-            return {strategy: 0.0 for strategy in self.config.enabled_strategies}
+            # Set technical strategies to 0.0 if no historical data
+            for strategy in self.config.enabled_strategies:
+                if strategy != StrategyType.SENTIMENT:
+                    signals[strategy] = 0.0
+            return signals
 
         df["close"] = df["close_price"].astype(float)
         df["volume"] = df["volume"].astype(float)
 
         for strategy in self.config.enabled_strategies:
             if strategy == StrategyType.SMA_CROSSOVER:
-                signals[strategy] = calculate_sma_signal(
-                    df, self.config.technical_indicators
-                )
+                signals[strategy] = calculate_sma_signal(df, self.config.technical_indicators)
             elif strategy == StrategyType.VWAP:
-                signals[strategy] = calculate_vwap_signal(
-                    df, self.config.technical_indicators
-                )
+                signals[strategy] = calculate_vwap_signal(df, self.config.technical_indicators)
             elif strategy == StrategyType.RSI:
-                signals[strategy] = calculate_rsi_signal(
-                    df, self.config.technical_indicators
-                )
+                signals[strategy] = calculate_rsi_signal(df, self.config.technical_indicators)
             elif strategy == StrategyType.MACD:
-                signals[strategy] = calculate_macd_signal(
-                    df, self.config.technical_indicators
-                )
+                signals[strategy] = calculate_macd_signal(df, self.config.technical_indicators)
 
         return signals
 
-    def place_order(
-        self, ticker: str, order_type: OrderType, amount: float
-    ) -> OrderResult:
+    def place_order(self, ticker: str, order_type: OrderType, amount: float) -> OrderResult:
         """
         Enhanced order placement with safety checks and logging.
 
@@ -143,33 +115,25 @@ class TradeBot:
         :return: The result of the order.
         """
         if not self.config.should_trade_now(datetime.now(timezone.utc)):
-            return OrderResult(
-                success=False, error_message="Outside trading hours", amount=amount
-            )
+            return OrderResult(success=False, error_message="Outside trading hours", amount=amount)
 
         try:
             if order_type == OrderType.BUY_RECOMMENDATION:
                 if not self.has_sufficient_funds_available(amount):
-                    return OrderResult(
-                        success=False, error_message="Insufficient funds", amount=amount
-                    )
+                    return OrderResult(success=False, error_message="Insufficient funds", amount=amount)
 
                 result = robinhood.orders.order_buy_fractional_by_price(
                     ticker, amount, timeInForce="gfd", extendedHours=False, jsonify=True
                 )
             elif order_type == OrderType.SELL_RECOMMENDATION:
                 if not self.has_sufficient_equity(ticker, amount):
-                    return OrderResult(
-                        success=False, error_message="Insufficient equity", amount=amount
-                    )
+                    return OrderResult(success=False, error_message="Insufficient equity", amount=amount)
 
                 result = robinhood.orders.order_sell_fractional_by_price(
                     ticker, amount, timeInForce="gfd", extendedHours=False, jsonify=True
                 )
             else:
-                return OrderResult(
-                    success=False, error_message="Invalid order type", amount=amount
-                )
+                return OrderResult(success=False, error_message="Invalid order type", amount=amount)
 
             order_result = OrderResult(
                 success=True,
@@ -203,9 +167,7 @@ class TradeBot:
 
         # Check risk management if we have a position
         if position and self.check_risk_management(current_price, position):
-            return self.place_order(
-                ticker, OrderType.SELL_RECOMMENDATION, position.equity
-            )
+            return self.place_order(ticker, OrderType.SELL_RECOMMENDATION, position.equity)
 
         # Calculate position size for new trades
         account_value = self.get_current_cash_position()
@@ -214,14 +176,10 @@ class TradeBot:
         position_size = self.config.get_position_size(account_value, volatility)
 
         if final_signal > self.config.threshold_percentage:
-            return self.place_order(
-                ticker, OrderType.BUY_RECOMMENDATION, position_size
-            )
-        elif final_signal < -self.config.threshold_percentage:
+            return self.place_order(ticker, OrderType.BUY_RECOMMENDATION, position_size)
+        if final_signal < -self.config.threshold_percentage:
             if position:
-                return self.place_order(
-                    ticker, OrderType.SELL_RECOMMENDATION, position.equity
-                )
+                return self.place_order(ticker, OrderType.SELL_RECOMMENDATION, position.equity)
 
         return OrderResult(success=True, error_message="No trade conditions met", amount=0.0)
 
@@ -229,7 +187,7 @@ class TradeBot:
         """Context manager support for safe resource handling."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Ensure proper logout on context exit."""
         self.robinhood_logout()
         if exc_type:
@@ -248,9 +206,7 @@ class TradeBot:
         except (KeyError, ValueError, pd.errors.EmptyDataError) as e:
             logger.error("Failed to logout from Robinhood: %s", e)
 
-    def get_stock_history_dataframe(
-        self, ticker: str, interval: str, span: str
-    ) -> pd.DataFrame:
+    def get_stock_history_dataframe(self, ticker: str, interval: str, span: str) -> pd.DataFrame:
         """
         Fetch historical stock data from Robinhood and return as a DataFrame.
 
@@ -264,9 +220,7 @@ class TradeBot:
             if interval in ["day", "week"]:
                 span = "year"
 
-            historicals = robinhood.stocks.get_stock_historicals(
-                ticker, interval=interval, span=span, bounds="regular"
-            )
+            historicals = robinhood.stocks.get_stock_historicals(ticker, interval=interval, span=span, bounds="regular")
 
             if not historicals:
                 logger.warning("No historical data available for %s", ticker)
@@ -284,7 +238,7 @@ class TradeBot:
 
             return df
 
-        except (Exception, pd.errors.EmptyDataError) as e:
+        except (KeyError, ValueError, pd.errors.EmptyDataError) as e:
             logger.error("Error fetching historical data for %s: %s", ticker, str(e))
             return pd.DataFrame()
 
@@ -305,9 +259,7 @@ class TradeBot:
             logger.error("Error fetching cash position: %s", str(e))
             return 0.0
 
-    def check_risk_management(
-        self, current_price: float, position: Position
-    ) -> bool:
+    def check_risk_management(self, current_price: float, position: Position) -> bool:
         """
         Check if the current position meets risk management criteria.
 
@@ -317,36 +269,23 @@ class TradeBot:
         """
         try:
             # Calculate position metrics
-            unrealized_pl_pct = (
-                (current_price - position.average_buy_price)
-                / position.average_buy_price
-            ) * 100
+            unrealized_pl_pct = ((current_price - position.average_buy_price) / position.average_buy_price) * 100
 
             # Check stop loss
-            if (
-                unrealized_pl_pct
-                <= -self.config.risk_management.stop_loss_percentage
-            ):
+            if unrealized_pl_pct <= -self.config.risk_management.stop_loss_percentage:
                 logger.info("Stop loss triggered at %.2f%% loss", unrealized_pl_pct)
                 return True
 
             # Check trailing stop if enabled
             if self.config.risk_management.use_trailing_stop:
-                trailing_stop_pct = (
-                    self.config.risk_management.trailing_stop_percentage
-                )
+                trailing_stop_pct = self.config.risk_management.trailing_stop_percentage
 
-                if current_price <= position.highest_price * (
-                    1 - trailing_stop_pct / 100
-                ):
+                if current_price <= position.highest_price * (1 - trailing_stop_pct / 100):
                     logger.info("Trailing stop triggered at %.2f", current_price)
                     return True
 
             # Check maximum position size
-            if (
-                position.equity
-                > self.config.risk_management.max_position_size
-            ):
+            if position.equity > self.config.risk_management.max_position_size:
                 logger.info("Maximum position size exceeded: $%.2f", position.equity)
                 return True
 
@@ -374,17 +313,13 @@ class TradeBot:
             current_price = float(quote_data[0])
 
             if current_price <= 0:
-                logger.warning(
-                    "Invalid price returned for %s: %f", ticker, current_price
-                )
+                logger.warning("Invalid price returned for %s: %f", ticker, current_price)
                 return 0.0
 
             return current_price
 
         except (KeyError, ValueError, TypeError) as e:
-            logger.error(
-                "Error retrieving current market price for %s: %s", ticker, str(e)
-            )
+            logger.error("Error retrieving current market price for %s: %s", ticker, str(e))
             return 0.0
 
     def get_current_positions(self) -> Dict[str, Position]:
@@ -394,9 +329,7 @@ class TradeBot:
             positions_dict = {}
 
             for position_data in positions:
-                instrument_data = robinhood.stocks.get_instrument_by_url(
-                    position_data.get("instrument")
-                )
+                instrument_data = robinhood.stocks.get_instrument_by_url(position_data.get("instrument"))
                 if not instrument_data:
                     continue
 
@@ -405,9 +338,7 @@ class TradeBot:
                     continue
 
                 quantity = float(position_data.get("quantity", 0.0))
-                average_buy_price = float(
-                    position_data.get("average_buy_price", 0.0)
-                )
+                average_buy_price = float(position_data.get("average_buy_price", 0.0))
 
                 # Skip positions with zero quantity
                 if quantity <= 0:
@@ -422,13 +353,8 @@ class TradeBot:
                     current_price=current_price,
                     equity=equity,
                     unrealized_pl=(current_price - average_buy_price) * quantity,
-                    unrealized_pl_pct=(
-                        (current_price - average_buy_price) / average_buy_price
-                    )
-                    * 100,
-                    highest_price=self._get_position_highest_price(
-                        ticker, position_data
-                    ),
+                    unrealized_pl_pct=((current_price - average_buy_price) / average_buy_price) * 100,
+                    highest_price=self._get_position_highest_price(ticker, position_data),
                 )
 
             return positions_dict
@@ -437,9 +363,7 @@ class TradeBot:
             logger.error("Error fetching current positions: %s", str(e))
             return {}
 
-    def _get_position_highest_price(
-        self, ticker: str, position: Dict
-    ) -> float:
+    def _get_position_highest_price(self, ticker: str, position: Dict[str, Any]) -> float:
         """
         Helper method to get the highest price since position entry.
 
