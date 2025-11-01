@@ -13,10 +13,10 @@ if [ ! -d "env" ]; then
     echo "Done!"
 fi
 
-TWITTER_CONSUMER_KEY="KqkJXHfeduwMUAIAJGi2fE5CN"
-TWITTER_CONSUMER_SECRET="bnXdtox4ULNk29anEFJ9D06LG2BVicLea9yAktJSn9g7q0r15w"
-ROBINHOOD_USER="mikeodnis3242004@gmail.com"
-ROBINHOOD_PASS="mdiaZ98Eqad#p2E"
+TWITTER_CONSUMER_KEY=""
+TWITTER_CONSUMER_SECRET=""
+ROBINHOOD_USER=""
+ROBINHOOD_PASS=""
 ROBINHOOD_MFA_CODE=""
 if [ ! -f ".env" ]; then
     echo "Creating .env file to store environment variables..."

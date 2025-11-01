@@ -8,12 +8,14 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 import numpy as np
 import tweepy
-from utilities import TwitterCredentials
+from src.utilities import TwitterCredentials
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import re
 from collections import defaultdict
-from src.bots.config import OrderType
+from src.bots.config import OrderType, SentimentAnalysisConfig
+from src.bots.tweet import Tweet
+from src.bots.ticker_to_company import TICKER_TO_COMPANY
 
 
 @dataclass
@@ -29,15 +31,6 @@ class SentimentMetrics:
     confidence_score: float
 
 
-class SentimentThresholds:
-    """Dynamic sentiment thresholds based on market conditions"""
-
-    BUY_THRESHOLD = 0.15
-    SELL_THRESHOLD = -0.15
-    VOLUME_MINIMUM = 50
-    CONFIDENCE_MINIMUM = 0.7
-
-
 class TradeBotTwitterSentiments:
     """
     Trading bot implementing advanced Twitter sentiment analysis with enhanced features.
@@ -51,15 +44,13 @@ class TradeBotTwitterSentiments:
     - Enhanced error handling and rate limiting
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize the sentiment trading bot with configuration."""
-        self.config = config or {
-            "max_tweets": 200,
-            "sentiment_window": "24h",
-            "min_tweet_volume": 50,
-            "enable_momentum": True,
-            "enable_premarket_analysis": True,
-        }
+    def __init__(self, config: Optional[SentimentAnalysisConfig] = None) -> None:
+        """
+        Initialize the sentiment trading bot with configuration.
+
+        :param config: The sentiment analysis configuration.
+        """
+        self.config = config or SentimentAnalysisConfig()
 
         self.logger = self._setup_logging()
         self._initialize_apis()
@@ -80,19 +71,27 @@ class TradeBotTwitterSentiments:
         logger = logging.getLogger(__name__)
         if not logger.handlers:
             handler = logging.StreamHandler()
-            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
             handler.setFormatter(formatter)
             logger.addHandler(handler)
             logger.setLevel(logging.INFO)
         return logger
 
-    def _initialize_apis(self):
+    def _initialize_apis(self) -> None:
         """Initialize Twitter API with error handling and rate limit management."""
         try:
             twitter_credentials = TwitterCredentials()
-            auth = tweepy.AppAuthHandler(twitter_credentials.consumer_key, twitter_credentials.consumer_secret)
+            auth = tweepy.AppAuthHandler(
+                twitter_credentials.consumer_key, twitter_credentials.consumer_secret
+            )
             self.twitter_api = tweepy.API(
-                auth, wait_on_rate_limit=True, retry_count=3, retry_delay=5, retry_errors=[400, 401, 500, 502, 503, 504]
+                auth,
+                wait_on_rate_limit=True,
+                retry_count=3,
+                retry_delay=5,
+                retry_errors=[400, 401, 500, 502, 503, 504],
             )
             self.logger.info("Successfully initialized Twitter API")
         except Exception as e:
@@ -108,70 +107,54 @@ class TradeBotTwitterSentiments:
         tweet = " ".join(tweet.split())
         return tweet
 
-    def get_company_name_from_ticker(self, ticker: str) -> str:
-        """Retrieve the company name from a stock ticker symbol."""
-        ticker_to_company = {
-            "AAPL": "Apple Inc",
-            "GOOGL": "Alphabet Inc",
-            "MSFT": "Microsoft Corporation",
-            "AMZN": "Amazon.com Inc",
-            "META": "Meta Platforms Inc",
-            "TSLA": "Tesla Inc",
-            "NVDA": "NVIDIA Corporation",
-            "NFLX": "Netflix Inc",
-            "IBM": "International Business Machines",
-            "INTC": "Intel Corporation",
-        }
-        return ticker_to_company.get(ticker, ticker)
-
-    def retrieve_tweets(self, ticker: str, max_count: int = None) -> List[Dict[str, Any]]:
+    def retrieve_tweets(self, ticker: str, max_count: int = None) -> List[Tweet]:
         """
         Retrieve and preprocess tweets about a stock with enhanced metadata.
 
-        Args:
-            ticker: Stock ticker symbol
-            max_count: Maximum number of tweets to retrieve
-
-        Returns:
-            List of dictionaries containing tweet data and metadata
+        :param ticker: Stock ticker symbol
+        :param max_count: Maximum number of tweets to retrieve
+        :return: List of dictionaries containing tweet data and metadata
         """
-        max_count = max_count or self.config["max_tweets"]
+        max_count = max_count or self.config.max_tweets_analyze
         processed_tweets = []
 
         try:
-            company_name = self.get_company_name_from_ticker(ticker)
+            company_name = TICKER_TO_COMPANY.get(ticker, ticker)
             query = f"({company_name} OR ${ticker}) lang:en -filter:retweets"
 
             tweets = tweepy.Cursor(
-                self.twitter_api.search_tweets, q=query, lang="en", result_type="mixed", tweet_mode="extended"
+                self.twitter_api.search_tweets,
+                q=query,
+                lang="en",
+                result_type="mixed",
+                tweet_mode="extended",
             ).items(max_count)
 
             for tweet in tweets:
-                processed_tweet = {
-                    "text": self._preprocess_tweet(tweet.full_text),
-                    "created_at": tweet.created_at,
-                    "user_followers": tweet.user.followers_count,
-                    "retweet_count": tweet.retweet_count,
-                    "favorite_count": tweet.favorite_count,
-                }
+                processed_tweet = Tweet(
+                    text=self._preprocess_tweet(tweet.full_text),
+                    created_at=tweet.created_at,
+                    user_followers=tweet.user.followers_count,
+                    retweet_count=tweet.retweet_count,
+                    favorite_count=tweet.favorite_count,
+                )
                 processed_tweets.append(processed_tweet)
 
         except tweepy.TweepError as e:
             self.logger.error("Error retrieving tweets: %s", e)
             if e.response and e.response.status_code == 429:
-                self.logger.warning("Rate limit reached. Implementing exponential backoff...")
+                self.logger.warning(
+                    "Rate limit reached. Implementing exponential backoff..."
+                )
 
         return processed_tweets
 
-    def analyze_sentiment(self, tweets: List[Dict[str, Any]]) -> SentimentMetrics:
+    def analyze_sentiment(self, tweets: List[Tweet]) -> SentimentMetrics:
         """
         Perform comprehensive sentiment analysis using multiple techniques.
 
-        Args:
-            tweets: List of processed tweets with metadata
-
-        Returns:
-            SentimentMetrics object containing analysis results
+        :param tweets: List of processed tweets with metadata
+        :return: SentimentMetrics object containing analysis results
         """
         if not tweets:
             return SentimentMetrics(0, 0, 0, 0, 0, 0, 0)
@@ -180,26 +163,43 @@ class TradeBotTwitterSentiments:
         total_weight = 0
 
         for tweet in tweets:
-            weight = np.log1p(1 + tweet["user_followers"] + 2 * tweet["retweet_count"] + tweet["favorite_count"])
+            weight = np.log1p(
+                1
+                + tweet.user_followers
+                + 2 * tweet.retweet_count
+                + tweet.favorite_count
+            )
 
-            vader_scores = self.vader_analyzer.polarity_scores(tweet["text"])
+            vader_scores = self.vader_analyzer.polarity_scores(tweet.text)
 
-            textblob_analysis = TextBlob(tweet["text"])
+            textblob_analysis = TextBlob(tweet.text)
             textblob_score = textblob_analysis.sentiment.polarity
 
             combined_score = vader_scores["compound"] * 0.7 + textblob_score * 0.3
 
-            sentiment_scores.append({"score": combined_score, "weight": weight, "timestamp": tweet["created_at"]})
+            sentiment_scores.append(
+                {"score": combined_score, "weight": weight, "timestamp": tweet.created_at}
+            )
             total_weight += weight
 
-        weighted_compound = sum(s["score"] * s["weight"] for s in sentiment_scores) / total_weight
+        weighted_compound = (
+            sum(s["score"] * s["weight"] for s in sentiment_scores) / total_weight
+        )
 
-        positive = len([s for s in sentiment_scores if s["score"] > 0]) / len(sentiment_scores)
-        negative = len([s for s in sentiment_scores if s["score"] < 0]) / len(sentiment_scores)
+        positive = (
+            len([s for s in sentiment_scores if s["score"] > 0])
+            / len(sentiment_scores)
+        )
+        negative = (
+            len([s for s in sentiment_scores if s["score"] < 0])
+            / len(sentiment_scores)
+        )
         neutral = 1 - positive - negative
 
         sentiment_momentum = self._calculate_sentiment_momentum(sentiment_scores)
-        confidence_score = self._calculate_confidence_score(sentiment_scores, len(tweets))
+        confidence_score = self._calculate_confidence_score(
+            sentiment_scores, len(tweets)
+        )
 
         return SentimentMetrics(
             compound_score=weighted_compound,
@@ -229,38 +229,42 @@ class TradeBotTwitterSentiments:
 
         return momentum
 
-    def _calculate_confidence_score(self, sentiment_scores: List[Dict[str, Any]], tweet_volume: int) -> float:
+    def _calculate_confidence_score(
+        self, sentiment_scores: List[Dict[str, Any]], tweet_volume: int
+    ) -> float:
         """Calculate confidence score based on volume and consensus."""
         if not sentiment_scores:
             return 0.0
 
-        volume_score = min(1.0, tweet_volume / SentimentThresholds.VOLUME_MINIMUM)
+        volume_score = min(1.0, tweet_volume / self.config.min_sentiment_samples)
 
         scores = [s["score"] for s in sentiment_scores]
         consensus_score = 1.0 - np.std(scores)
 
         return volume_score * 0.4 + consensus_score * 0.6
 
-    def make_trading_decision(self, ticker: str) -> Tuple[str, float, float]:
+    def make_trading_decision(self, ticker: str) -> Tuple[OrderType, float, float]:
         """
         Make trading decision based on comprehensive sentiment analysis.
 
-        Args:
-            ticker: Stock ticker symbol
-
-        Returns:
-            Tuple of (OrderType, sentiment_score, confidence_score)
+        :param ticker: Stock ticker symbol
+        :return: Tuple of (OrderType, sentiment_score, confidence_score)
         """
         try:
             tweets = self.retrieve_tweets(ticker)
             sentiment_metrics = self.analyze_sentiment(tweets)
 
-            self.sentiment_history[ticker].append({"timestamp": datetime.now(), "metrics": sentiment_metrics})
+            self.sentiment_history[ticker].append(
+                {"timestamp": datetime.now(), "metrics": sentiment_metrics}
+            )
 
             if (
-                sentiment_metrics.compound_score >= SentimentThresholds.BUY_THRESHOLD
-                and sentiment_metrics.confidence_score >= SentimentThresholds.CONFIDENCE_MINIMUM
-                and sentiment_metrics.tweet_volume >= SentimentThresholds.VOLUME_MINIMUM
+                sentiment_metrics.compound_score
+                >= self.config.sentiment_threshold_buy
+                and sentiment_metrics.confidence_score
+                >= self.config.confidence_minimum
+                and sentiment_metrics.tweet_volume
+                >= self.config.min_sentiment_samples
             ):
 
                 if sentiment_metrics.sentiment_momentum > 0:
@@ -271,8 +275,10 @@ class TradeBotTwitterSentiments:
                     )
 
             elif (
-                sentiment_metrics.compound_score <= SentimentThresholds.SELL_THRESHOLD
-                and sentiment_metrics.confidence_score >= SentimentThresholds.CONFIDENCE_MINIMUM
+                sentiment_metrics.compound_score
+                <= self.config.sentiment_threshold_sell
+                and sentiment_metrics.confidence_score
+                >= self.config.confidence_minimum
             ):
                 return (
                     OrderType.SELL_RECOMMENDATION,
@@ -280,24 +286,34 @@ class TradeBotTwitterSentiments:
                     sentiment_metrics.confidence_score,
                 )
 
-            return (OrderType.HOLD_RECOMMENDATION, sentiment_metrics.compound_score, sentiment_metrics.confidence_score)
+            return (
+                OrderType.HOLD_RECOMMENDATION,
+                sentiment_metrics.compound_score,
+                sentiment_metrics.confidence_score,
+            )
 
         except (KeyboardInterrupt, tweepy.TweepError) as e:
             self.logger.error("Error making trading decision: %s", e)
             return (OrderType.HOLD_RECOMMENDATION, 0.0, 0.0)
 
-    def update_performance_metrics(self, recommendation: OrderType, actual_return: float):
+    def update_performance_metrics(self, recommendation: OrderType, actual_return: float) -> None:
         """Update performance tracking metrics."""
         self.performance_metrics["total_trades"] += 1
 
-        if recommendation in [OrderType.BUY_RECOMMENDATION, OrderType.SELL_RECOMMENDATION] and actual_return > 0:
+        if (
+            recommendation
+            in [OrderType.BUY_RECOMMENDATION, OrderType.SELL_RECOMMENDATION]
+            and actual_return > 0
+        ):
             self.performance_metrics["successful_predictions"] += 1
         else:
             self.performance_metrics["false_signals"] += 1
 
         # Update average return
         self.performance_metrics["avg_return"] = (
-            self.performance_metrics["avg_return"] * (self.performance_metrics["total_trades"] - 1) + actual_return
+            self.performance_metrics["avg_return"]
+            * (self.performance_metrics["total_trades"] - 1)
+            + actual_return
         ) / self.performance_metrics["total_trades"]
 
     def get_performance_summary(self) -> Dict[str, Any]:
@@ -306,7 +322,9 @@ class TradeBotTwitterSentiments:
         if total_trades == 0:
             return {"success_rate": 0.0, "average_return": 0.0, "total_trades": 0}
 
-        success_rate = self.performance_metrics["successful_predictions"] / total_trades * 100
+        success_rate = (
+            self.performance_metrics["successful_predictions"] / total_trades * 100
+        )
 
         return {
             "success_rate": round(success_rate, 2),
