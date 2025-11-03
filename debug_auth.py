@@ -72,7 +72,11 @@ def debug_robinhood_response():
                 logger.info("  Remaining attempts: %s", data['challenge'].get('remaining_attempts'))
             elif 'mfa_required' in data:
                 logger.info("🔐 MFA required:")
-                logger.info("  MFA type: %s", data.get('mfa_type'))
+                mfa_type_val = data.get('mfa_type')
+                if isinstance(mfa_type_val, str) and mfa_type_val.lower() in {"sms", "totp", "app", "email"}:
+                    logger.info("  MFA type: %s", mfa_type_val)
+                else:
+                    logger.info("  MFA type: [redacted or unknown]")
             elif 'access_token' in data:
                 logger.info("✅ Access token received - login successful!")
         
